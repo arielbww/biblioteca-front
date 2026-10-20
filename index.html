@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Biblioteca</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      font-family: system-ui, sans-serif;
+      background: #f4f5f7;
+      color: #1f2933;
+      margin: 0;
+      padding: 24px 16px;
+    }
+    main { max-width: 720px; margin: 0 auto; }
+    h1 { margin-top: 0; }
+    .card {
+      background: #fff;
+      border-radius: 10px;
+      padding: 16px;
+      margin-bottom: 16px;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, .1);
+    }
+    form { display: grid; gap: 10px; }
+    input {
+      padding: 10px;
+      border: 1px solid #cbd2d9;
+      border-radius: 6px;
+      font-size: 1rem;
+    }
+    button {
+      padding: 10px 14px;
+      border: 0;
+      border-radius: 6px;
+      font-size: .95rem;
+      cursor: pointer;
+      background: #2563eb;
+      color: #fff;
+    }
+    button.sec { background: #64748b; }
+    button.del { background: #dc2626; }
+    .acoes { display: flex; gap: 8px; }
+    .livro { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+    .livro h3 { margin: 0 0 4px; }
+    .livro p { margin: 0; color: #52606d; }
+    #msg { min-height: 1.2em; margin: 0 0 12px; font-weight: 600; }
+    #msg.erro { color: #dc2626; }
+    #msg.ok { color: #16a34a; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>📚 Biblioteca</h1>
+    <p id="msg"></p>
+
+    <section class="card">
+      <h2 id="form-titulo">Novo livro</h2>
+      <form id="form">
+        <input id="titulo" placeholder="Título" required>
+        <input id="autor" placeholder="Autor" required>
+        <input id="ano" type="number" placeholder="Ano (opcional)">
+        <div class="acoes">
+          <button type="submit" id="btn-salvar">Cadastrar</button>
+          <button type="button" class="sec" id="btn-cancelar" hidden>Cancelar</button>
+        </div>
+      </form>
+    </section>
+
+    <section id="lista"></section>
+  </main>
+
+  <script>
+    // Troque pela URL do seu Worker (a que aparece no deploy), sem barra no final
+    const API_URL = "https://biblioteca.arielnunes124.workers.dev";
+
+    const form = document.getElementById("form");
+    const inputTitulo = document.getElementById("titulo");
+    const inputAutor = document.getElementById("autor");
+    const inputAno = document.getElementById("ano");
+    const btnSalvar = document.getElementById("btn-salvar");
+    const btnCancelar = document.getElementById("btn-cancelar");
+    const formTitulo = document.getElementById("form-titulo");
+    const lista = document.getElementById("lista");
+    const msg = document.getElementById("msg");
+
+    let editandoId = null; // null = cadastrando; número = editando
+
+    function mostrarMensagem(texto, tipo) {
+      msg.textContent = texto;
+      msg.className = tipo || "";
+    }
+
+    // Faz a requisição e trata erros vindos da API ({ erro: "..." })
+    async function requisicao(caminho, opcoes) {
+      const resposta = await fetch(API_URL + caminho, opcoes);
+      const dados = await resposta.json();
+      if (!resposta.ok) throw new Error(dados.erro || "Erro na requisição");
+      return dados;
+    }
+
+    async function carregarLivros() {
+      try {
+        const livros = await requisicao("/api/livros");
+        lista.innerHTML = "";
+
+        if (livros.length === 0) {
+          lista.innerHTML = '<p class="card">Nenhum livro cadastrado ainda.</p>';
+          return;
+        }
+
+        livros.forEach((livro) => lista.appendChild(criarCard(livro)));
+      } catch (e) {
+        mostrarMensagem("Não foi possível carregar os livros: " + e.message, "erro");
+      }
+    }
+
+    function criarCard(livro) {
+      const card = document.createElement("div");
+      card.className = "card livro";
+
+      const info = document.createElement("div");
+      const h3 = document.createElement("h3");
+      h3.textContent = livro.titulo; // textContent evita injeção de HTML
+      const p = document.createElement("p");
+      p.textContent = livro.autor + (livro.ano ? " • " + livro.ano : "");
+      info.append(h3, p);
+
+      const acoes = document.createElement("div");
+      acoes.className = "acoes";
+
+      const btnEditar = document.createElement("button");
+      btnEditar.textContent = "Editar";
+      btnEditar.onclick = () => iniciarEdicao(livro);
+
+      const btnExcluir = document.createElement("button");
+      btnExcluir.textContent = "Excluir";
+      btnExcluir.className = "del";
+      btnExcluir.onclick = () => excluirLivro(livro.id);
+
+      acoes.append(btnEditar, btnExcluir);
+      card.append(info, acoes);
+      return card;
+    }
+
+    function iniciarEdicao(livro) {
+      editandoId = livro.id;
+      inputTitulo.value = livro.titulo;
+      inputAutor.value = livro.autor;
+      inputAno.value = livro.ano ?? "";
+      formTitulo.textContent = "Editar livro";
+      btnSalvar.textContent = "Salvar alterações";
+      btnCancelar.hidden = false;
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
+
+    function resetarFormulario() {
+      editandoId = null;
+      form.reset();
+      formTitulo.textContent = "Novo livro";
+      btnSalvar.textContent = "Cadastrar";
+      btnCancelar.hidden = true;
+    }
+
+    async function excluirLivro(id) {
+      if (!confirm("Excluir este livro?")) return;
+      try {
+        await requisicao("/api/livros/" + id, { method: "DELETE" });
+        mostrarMensagem("Livro excluído", "ok");
+        carregarLivros();
+      } catch (e) {
+        mostrarMensagem(e.message, "erro");
+      }
+    }
+
+    form.addEventListener("submit", async (evento) => {
+      evento.preventDefault();
+
+      const corpo = {
+        titulo: inputTitulo.value.trim(),
+        autor: inputAutor.value.trim(),
+        ano: inputAno.value ? Number(inputAno.value) : null,
+      };
+
+      const editando = editandoId !== null;
+      const caminho = editando ? "/api/livros/" + editandoId : "/api/livros";
+
+      try {
+        await requisicao(caminho, {
+          method: editando ? "PUT" : "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(corpo),
+        });
+        mostrarMensagem(editando ? "Livro atualizado" : "Livro cadastrado", "ok");
+        resetarFormulario();
+        carregarLivros();
+      } catch (e) {
+        mostrarMensagem(e.message, "erro");
+      }
+    });
+
+    btnCancelar.addEventListener("click", resetarFormulario);
+
+    carregarLivros();
+  </script>
+</body>
+</html>
